@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MindsDB CSV Q&A</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 2rem;
+        background-color: #f9f9f9;
+        color: #333;
+      }
+      h1 {
+        color: #222;
+      }
+      input,
+      button {
+        padding: 10px;
+        font-size: 1rem;
+        margin: 5px 0;
+        width: 100%;
+      }
+      #output {
+        margin-top: 20px;
+        padding: 10px;
+        background: #eee;
+        white-space: pre-wrap;
+        border-radius: 5px;
+      }
+      .section {
+        background: #fff;
+        padding: 1rem;
+        margin-bottom: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MindsDB Semantic Q&A</h1>
+
+    <div class="section">
+      <h2>Step 1: Upload CSV</h2>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" name="csvfile" accept=".csv" required />
+        <button type="submit">Upload & Create KB</button>
+      </form>
+      <p id="kb-status"></p>
+    </div>
+    
+    <div class="section">
+      <h2>Step 2: Manually Insert Data into KB</h2>
+      <button onclick="insertIntoKB()">Insert Data into Knowledge Base</button>
+      <p id="insert-status"></p>
+    </div>
+
+    <div class="section">
+      <h2>Step 3: Ask a Semantic Question</h2>
+      <input
+        type="text"
+        id="question"
+        placeholder="e.g. What are the top cities with most sales?"
+      />
+      <button onclick="askQuestion()">Ask</button>
+      <pre id="output">Answer will appear here...</pre>
+    </div>
+
+    <script>
+      let currentKB = "";
+      let lastTableName = "";
+      let currentDB = "";
+      let lastHeaders = [];
+
+      document.getElementById("uploadForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        document.getElementById("kb-status").textContent = "Uploading...";
+
+        try {
+          const res = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await res.json();
+          if (data.kb_name && data.table_name && data.headers && data.db_name) {
+            currentKB = data.kb_name;
+            lastTableName = data.table_name;
+            lastHeaders = data.headers;
+            currentDB = data.db_name;
+
+            document.getElementById(
+              "kb-status"
+            ).textContent = `✅ KB Created: ${currentKB}`;
+          } else {
+            throw new Error(data.error || "Unexpected response format");
+          }
+        } catch (err) {
+          document.getElementById(
+            "kb-status"
+          ).textContent = `❌ Error: ${err.message}`;
+        }
+      };
+
+      async function askQuestion() {
+        const question = document.getElementById("question").value.trim();
+        if (!question) {
+          alert("Please enter a question.");
+          return;
+        }
+
+        if (!currentKB) {
+          alert("Please upload a CSV and create a KB first.");
+          return;
+        }
+
+        document.getElementById("output").textContent =
+          "⏳ Waiting for MindsDB to respond...";
+
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question, kb: currentKB }),
+        });
+
+        const data = await res.json();
+        document.getElementById("output").textContent = JSON.stringify(
+          data,
+          null,
+          2
+        );
+      }
+
+      async function insertIntoKB() {
+        if (!currentKB || !lastTableName || !lastHeaders || !currentDB) {
+          alert("KB is not ready. Please upload a CSV first.");
+          return;
+        }
+
+        document.getElementById("insert-status").textContent =
+          "⏳ Inserting data into KB...";
+
+        try {
+          const res = await fetch("/insert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              kb: currentKB,
+              table: lastTableName,
+              headers: lastHeaders,
+              db: currentDB,
+            }),
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+            document.getElementById("insert-status").textContent =
+              "✅ Data inserted into KB.";
+          } else {
+            throw new Error(data.error || "Unknown error");
+          }
+        } catch (err) {
+          document.getElementById(
+            "insert-status"
+          ).textContent = `❌ Error inserting: ${err.message}`;
+        }
+      }
+    </script>
+  </body>
+</html>
